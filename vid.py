@@ -4,11 +4,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
 import time
-from PIL import Image, ImageTk, ImageDraw, ImageFont
 import os
 from collections import deque
 import queue
-import threading
+
 
 class ASCIIVideoGUI:
     def __init__(self, root):
@@ -40,7 +39,7 @@ class ASCIIVideoGUI:
         self.frame_times = deque(maxlen=30)
         self.last_frame_time = time.time()
         
-        # ASCII art settings 
+        # ASCII art settings (use lock for thread safety)
         self.ascii_width = 100
         self.font_size = 10
         self.chars = " .:-=+*#%@"

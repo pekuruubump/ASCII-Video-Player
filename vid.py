@@ -136,7 +136,7 @@ class ASCIIVideoGUI:
         )
         self.btn_apply.pack(side=tk.LEFT, padx=5)
         
-        # Display area - where the ASCII magic happens
+        # Display area 
         display_frame = tk.Frame(main_frame, bg="#000000")
         display_frame.pack(fill=tk.BOTH, expand=True)
         

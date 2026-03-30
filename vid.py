@@ -40,7 +40,7 @@ class ASCIIVideoGUI:
         self.frame_times = deque(maxlen=30)
         self.last_frame_time = time.time()
         
-        # ASCII art settings (use lock for thread safety)
+        # ASCII art settings 
         self.ascii_width = 100
         self.font_size = 10
         self.chars = " .:-=+*#%@"

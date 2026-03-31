@@ -639,6 +639,10 @@ class ASCIIVideoPlayer:
         self.display_update_job: Optional[str] = None
 
         self.ui_lock = threading.Lock()
+        
+        # Debouncing timer for settings
+        self._settings_update_timer = None
+        self._settings_update_lock = threading.Lock()
 
         self.bg_color = "#1e1e1e"
         self.fg_color = "#ffffff"
@@ -790,7 +794,7 @@ class ASCIIVideoPlayer:
         self.position_label.pack(side=tk.LEFT, padx=5)
 
     def setup_settings_panel(self, parent):
-        """Setup settings controls with real-time updates"""
+        """Setup settings controls with debounced real-time updates"""
         settings_frame = tk.Frame(parent, bg=self.bg_color)
         settings_frame.pack(side=tk.RIGHT, padx=5)
 
@@ -806,10 +810,10 @@ class ASCIIVideoPlayer:
             bg="#2d2d2d",
             fg=self.fg_color,
             relief=tk.FLAT,
-            command=self.apply_settings_real_time
+            command=self._schedule_settings_update
         )
         width_spinbox.pack(side=tk.LEFT, padx=2)
-        self.width_var.trace_add('write', lambda *args: self.apply_settings_real_time())
+        self.width_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
         # Font size control
         tk.Label(settings_frame, text="Font:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
@@ -823,44 +827,44 @@ class ASCIIVideoPlayer:
             bg="#2d2d2d",
             fg=self.fg_color,
             relief=tk.FLAT,
-            command=self.apply_settings_real_time
+            command=self._schedule_settings_update
         )
         font_spinbox.pack(side=tk.LEFT, padx=2)
-        self.font_var.trace_add('write', lambda *args: self.apply_settings_real_time())
+        self.font_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
-        # Brightness control
+        # Brightness control - use Scale with slower update rate
         tk.Label(settings_frame, text="Bright:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
-        self.brightness_var = tk.StringVar(value=str(self.current_settings.brightness))
+        self.brightness_var = tk.DoubleVar(value=self.current_settings.brightness)
         brightness_scale = tk.Scale(
             settings_frame,
             from_=0.0,
             to=2.0,
-            resolution=0.1,
+            resolution=0.05,  # Larger steps = fewer updates
             orient=tk.HORIZONTAL,
             length=100,
             variable=self.brightness_var,
             bg=self.bg_color,
             fg=self.fg_color,
             highlightthickness=0,
-            command=lambda x: self.apply_settings_real_time()
+            command=lambda x: self._schedule_settings_update()
         )
         brightness_scale.pack(side=tk.LEFT, padx=2)
 
         # Contrast control
         tk.Label(settings_frame, text="Contrast:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
-        self.contrast_var = tk.StringVar(value=str(self.current_settings.contrast))
+        self.contrast_var = tk.DoubleVar(value=self.current_settings.contrast)
         contrast_scale = tk.Scale(
             settings_frame,
             from_=0.0,
             to=3.0,
-            resolution=0.1,
+            resolution=0.05,  # Larger steps = fewer updates
             orient=tk.HORIZONTAL,
             length=100,
             variable=self.contrast_var,
             bg=self.bg_color,
             fg=self.fg_color,
             highlightthickness=0,
-            command=lambda x: self.apply_settings_real_time()
+            command=lambda x: self._schedule_settings_update()
         )
         contrast_scale.pack(side=tk.LEFT, padx=2)
 
@@ -881,7 +885,7 @@ class ASCIIVideoPlayer:
             state="readonly"
         )
         charset_menu.pack(side=tk.LEFT, padx=2)
-        charset_menu.bind('<<ComboboxSelected>>', lambda e: self.apply_settings_real_time())
+        charset_menu.bind('<<ComboboxSelected>>', lambda e: self._schedule_settings_update())
 
         # Cache size control
         tk.Label(settings_frame, text="Cache:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
@@ -895,10 +899,10 @@ class ASCIIVideoPlayer:
             bg="#2d2d2d",
             fg=self.fg_color,
             relief=tk.FLAT,
-            command=self.apply_settings_real_time
+            command=self._schedule_settings_update
         )
         cache_spinbox.pack(side=tk.LEFT, padx=2)
-        self.cache_var.trace_add('write', lambda *args: self.apply_settings_real_time())
+        self.cache_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
         # Save button
         self.btn_save = tk.Button(
@@ -926,11 +930,71 @@ class ASCIIVideoPlayer:
         )
         self.btn_reset.pack(side=tk.LEFT, padx=2)
 
+    def _schedule_settings_update(self):
+        """Debounce settings updates to prevent excessive conversions"""
+        with self._settings_update_lock:
+            # Cancel any pending update
+            if self._settings_update_timer:
+                self.root.after_cancel(self._settings_update_timer)
+            
+            # Schedule a new update after a short delay (100ms)
+            self._settings_update_timer = self.root.after(100, self._apply_debounced_settings)
+
+    def _apply_debounced_settings(self):
+        """Apply settings after debounce delay"""
+        with self._settings_update_lock:
+            self._settings_update_timer = None
+            
+            try:
+                # Only apply if values have actually changed
+                new_settings = VideoSettings(
+                    width=int(self.width_var.get()),
+                    font_size=int(self.font_var.get()),
+                    brightness=float(self.brightness_var.get()),
+                    contrast=float(self.contrast_var.get()),
+                    chars=self.charset_var.get(),
+                    cache_size=int(self.cache_var.get()),
+                    target_fps=self.current_settings.target_fps
+                )
+                
+                # Skip if settings haven't changed
+                if new_settings == self.current_settings:
+                    return
+                
+                self.current_settings = new_settings
+                
+                # Update converter (this clears cache)
+                self.converter.update_settings(new_settings)
+                
+                # Update display font
+                if self.display:
+                    self.display.set_font_size(new_settings.font_size)
+                
+                # Update video processor if active
+                if self.video_processor:
+                    self.video_processor.update_settings(new_settings)
+                    
+                    # Only refresh if paused (avoid interrupting playback)
+                    state = self.video_processor.get_state()
+                    if not state['is_playing']:
+                        self.update_current_frame_display()
+                    else:
+                        # If playing, just show a brief indicator
+                        self.status_bar.config(text=f"Settings: {new_settings.width}x{new_settings.font_size}")
+                        if hasattr(self, '_status_reset_job'):
+                            self.root.after_cancel(self._status_reset_job)
+                        self._status_reset_job = self.root.after(1000, 
+                            lambda: self.status_bar.config(text="Playing"))
+                
+            except Exception as e:
+                logger.error(f"Error applying settings: {e}")
+                self.status_bar.config(text=f"Error: {e}")
+
     def reset_settings(self):
         """Reset settings to defaults"""
         self.current_settings = VideoSettings()
         self._load_settings_to_ui()
-        self.apply_settings_real_time()
+        self._apply_debounced_settings()
         self.status_bar.config(text="Settings reset to defaults")
 
     def _load_settings_to_ui(self):
@@ -943,39 +1007,8 @@ class ASCIIVideoPlayer:
         self.cache_var.set(str(self.current_settings.cache_size))
 
     def apply_settings_real_time(self):
-        """Apply settings in real-time as user changes them"""
-        try:
-            new_settings = VideoSettings(
-                width=int(self.width_var.get()),
-                font_size=int(self.font_var.get()),
-                brightness=float(self.brightness_var.get()),
-                contrast=float(self.contrast_var.get()),
-                chars=self.charset_var.get(),
-                cache_size=int(self.cache_var.get()),
-                target_fps=self.current_settings.target_fps
-            )
-
-            self.current_settings = new_settings
-            self.converter.update_settings(new_settings)
-
-            if self.display:
-                self.display.set_font_size(new_settings.font_size)
-
-            if self.video_processor:
-                self.video_processor.update_settings(new_settings)
-
-                state = self.video_processor.get_state()
-                if not state['is_playing']:
-                    self.update_current_frame_display()
-
-            self.status_bar.config(text=f"Settings applied")
-            if hasattr(self, '_status_reset_job'):
-                self.root.after_cancel(self._status_reset_job)
-            self._status_reset_job = self.root.after(2000, lambda: self.status_bar.config(text="Ready"))
-
-        except Exception as e:
-            logger.error(f"Error applying settings: {e}")
-            self.status_bar.config(text=f"Error: {e}")
+        """Legacy method - now using debounced updates"""
+        self._schedule_settings_update()
 
     def save_settings(self):
         """Save current settings to config file"""
@@ -1167,14 +1200,14 @@ class ASCIIVideoPlayer:
         current_font = int(self.font_var.get())
         if current_font < 24:
             self.font_var.set(str(current_font + 1))
-            self.apply_settings_real_time()
+            self._schedule_settings_update()
         return "break"
 
     def _on_zoom_out(self, event=None):
         current_font = int(self.font_var.get())
         if current_font > 6:
             self.font_var.set(str(current_font - 1))
-            self.apply_settings_real_time()
+            self._schedule_settings_update()
         return "break"
 
     def _on_open_file(self, event=None):
@@ -1191,6 +1224,13 @@ class ASCIIVideoPlayer:
     def cleanup(self):
         """Clean up all resources"""
         logger.info("Cleaning up application...")
+        
+        # Cancel any pending settings update
+        if self._settings_update_timer:
+            try:
+                self.root.after_cancel(self._settings_update_timer)
+            except:
+                pass
 
         if self.display_update_job:
             try:

@@ -7,7 +7,7 @@ import time
 import os
 from collections import deque
 import queue
-import atexit we
+import atexit 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import logging

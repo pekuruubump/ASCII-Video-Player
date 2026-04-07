@@ -1,5 +1,7 @@
-import cv2
-import numpy as np
+import cv2 # you need to install this!!
+import numpy as np #this too!!!
+
+# ---------------------------------------------
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
@@ -13,7 +15,9 @@ from typing import Optional, Dict, Any
 import logging
 import json
 from pathlib import Path
-import hashlib
+import hashlib #these are already installed
+#-----------------------------------------------
+
 
 # Configure logging
 logging.basicConfig(
@@ -29,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class VideoSettings:
-    """Immutable settings class with validation and serialization"""
     width: int = 100
     font_size: int = 10
     brightness: float = 1.0
@@ -39,7 +42,6 @@ class VideoSettings:
     target_fps: int = 30
 
     def __post_init__(self):
-        """Validate and normalize settings"""
         self.width = max(40, min(300, self.width))
         self.font_size = max(6, min(24, self.font_size))
         self.brightness = max(0.0, min(2.0, self.brightness))
@@ -48,7 +50,6 @@ class VideoSettings:
         self.target_fps = max(15, min(60, self.target_fps))
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for serialization"""
         return {
             'width': self.width,
             'font_size': self.font_size,
@@ -61,13 +62,10 @@ class VideoSettings:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'VideoSettings':
-        """Create settings from dictionary"""
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 class ThreadSafeCache:
-    """Thread-safe LRU cache for ASCII conversions"""
-
     def __init__(self, max_size: int = 100):
         self.max_size = max_size
         self._cache: Dict[str, str] = {}
@@ -75,14 +73,12 @@ class ThreadSafeCache:
         self._lock = threading.RLock()
 
     def _generate_key(self, frame: np.ndarray, settings_hash: int) -> str:
-        """Generate cache key from frame thumbnail and settings"""
         small_frame = cv2.resize(frame, (32, 24), interpolation=cv2.INTER_AREA)
         frame_bytes = small_frame.tobytes()
         frame_hash = hashlib.md5(frame_bytes).hexdigest()[:16]
         return f"{frame_hash}_{settings_hash}"
 
     def get(self, frame: np.ndarray, settings_hash: int) -> Optional[str]:
-        """Get cached ASCII art if available"""
         with self._lock:
             key = self._generate_key(frame, settings_hash)
             if key in self._cache:
@@ -95,7 +91,6 @@ class ThreadSafeCache:
             return None
 
     def put(self, frame: np.ndarray, settings_hash: int, ascii_art: str):
-        """Cache ASCII art with LRU eviction"""
         with self._lock:
             key = self._generate_key(frame, settings_hash)
 
@@ -108,20 +103,16 @@ class ThreadSafeCache:
                 self._access_order.append(key)
 
     def clear(self):
-        """Clear all cache entries"""
         with self._lock:
             self._cache.clear()
             self._access_order.clear()
 
     def get_size(self) -> int:
-        """Get current cache size"""
         with self._lock:
             return len(self._cache)
 
 
 class ASCIIConverter:
-    """Optimized ASCII converter with thread-safe caching"""
-
     def __init__(self):
         self.settings = VideoSettings()
         self.cache: Optional[ThreadSafeCache] = None
@@ -129,12 +120,10 @@ class ASCIIConverter:
         self._init_cache()
 
     def _init_cache(self):
-        """Initialize cache with current settings"""
         with self._settings_lock:
             self.cache = ThreadSafeCache(max_size=self.settings.cache_size)
 
     def update_settings(self, new_settings: VideoSettings):
-        """Update converter settings and reset cache"""
         with self._settings_lock:
             if self.settings != new_settings:
                 self.settings = new_settings
@@ -142,7 +131,6 @@ class ASCIIConverter:
                 logger.debug("Settings updated and cache reset")
 
     def _get_settings_hash(self) -> int:
-        """Generate hash of current settings"""
         with self._settings_lock:
             return hash((
                 self.settings.width,
@@ -152,7 +140,6 @@ class ASCIIConverter:
             ))
 
     def frame_to_ascii(self, frame: np.ndarray) -> str:
-        """Convert frame to ASCII art with caching"""
         settings_hash = self._get_settings_hash()
 
         cached = self.cache.get(frame, settings_hash)
@@ -169,7 +156,6 @@ class ASCIIConverter:
             beta = (self.settings.brightness - 1.0) * 255
             gray = cv2.convertScaleAbs(gray, alpha=alpha, beta=beta)
 
-        # Adjusted aspect ratio for better proportions
         aspect_ratio = 0.45
         target_width = self.settings.width
         target_height = int(gray.shape[0] * target_width / gray.shape[1] * aspect_ratio)
@@ -190,8 +176,6 @@ class ASCIIConverter:
 
 
 class VideoProcessor(threading.Thread):
-    """Dedicated thread for video processing with proper synchronization"""
-
     def __init__(self, video_path: str, converter: ASCIIConverter):
         super().__init__(daemon=True, name="VideoProcessor")
         self.video_path = video_path
@@ -220,7 +204,6 @@ class VideoProcessor(threading.Thread):
         self._open_video()
 
     def _open_video(self) -> bool:
-        """Open video capture and populate metadata."""
         try:
             with self._state_lock:
                 if self.cap is not None:
@@ -247,7 +230,6 @@ class VideoProcessor(threading.Thread):
             return False
 
     def run(self):
-        """Main processing loop with proper synchronization"""
         if not self._video_loaded:
             self.frame_queue.put(("error", self._error_state or "Video not loaded"))
             return
@@ -321,7 +303,6 @@ class VideoProcessor(threading.Thread):
                 time.sleep(0.5)
 
     def _process_commands(self):
-        """Process queued commands"""
         try:
             while True:
                 command = self.command_queue.get_nowait()
@@ -342,7 +323,6 @@ class VideoProcessor(threading.Thread):
             pass
 
     def _perform_seek(self):
-        """Perform seek operation safely"""
         with self._state_lock:
             if self.cap and self.cap.isOpened():
                 position = max(0, min(self._seek_position, self.total_frames - 1))
@@ -356,7 +336,6 @@ class VideoProcessor(threading.Thread):
                         break
 
     def _handle_end_of_video(self):
-        """Handle reaching end of video"""
         with self._state_lock:
             if self.current_frame_pos >= self.total_frames - 1:
                 self.is_playing = False
@@ -368,19 +347,16 @@ class VideoProcessor(threading.Thread):
                 logger.info("Video playback completed")
 
     def play(self):
-        """Start or resume playback"""
         with self._state_lock:
             self.is_playing = True
         self._pause_event.clear()
 
     def pause(self):
-        """Pause playback"""
         with self._state_lock:
             self.is_playing = False
         self._pause_event.set()
 
     def stop(self):
-        """Stop playback and reset"""
         self.pause()
         with self._state_lock:
             if self.cap:
@@ -388,22 +364,18 @@ class VideoProcessor(threading.Thread):
                 self.current_frame_pos = 0
 
     def update_settings(self, settings: VideoSettings):
-        """Queue settings update"""
         try:
             self.settings_update_queue.put(settings, timeout=0.1)
         except queue.Full:
             logger.warning("Settings update queue full, skipping")
 
     def seek(self, frame_position: int):
-        """Seek to specific frame"""
         self.command_queue.put({'type': 'seek', 'position': frame_position})
 
     def seek_relative(self, delta: int):
-        """Seek relative to current position"""
         self.command_queue.put({'type': 'seek_relative', 'delta': delta})
 
     def get_current_frame(self) -> Optional[np.ndarray]:
-        """Get current frame without modifying position"""
         with self._state_lock:
             if self.cap and self.cap.isOpened():
                 original_pos = self.current_frame_pos
@@ -414,7 +386,6 @@ class VideoProcessor(threading.Thread):
         return None
 
     def get_state(self) -> dict:
-        """Get current state safely"""
         with self._state_lock:
             return {
                 'is_playing': self.is_playing,
@@ -425,7 +396,6 @@ class VideoProcessor(threading.Thread):
             }
 
     def cleanup(self):
-        """Clean up resources"""
         logger.info("Cleaning up video processor...")
         self._stop_event.set()
         self._pause_event.set()
@@ -448,8 +418,6 @@ class VideoProcessor(threading.Thread):
 
 
 class OptimizedDisplay:
-    """Manages ASCII art display with optimized rendering"""
-
     def __init__(self, parent, font_size: int = 10):
         self.parent = parent
         self.font_size = font_size
@@ -494,16 +462,13 @@ class OptimizedDisplay:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     def _on_canvas_configure(self, event):
-        """Update scroll region when canvas resizes"""
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         self.canvas.itemconfig(self.canvas_window, width=event.width)
 
     def _on_frame_configure(self, event):
-        """Update scroll region when frame content changes"""
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def update_ascii(self, ascii_art: str):
-        """Update displayed ASCII art with throttling"""
         with self._update_lock:
             if ascii_art == self.current_ascii:
                 return
@@ -515,7 +480,6 @@ class OptimizedDisplay:
                 self.parent.after(16, self._perform_update)
 
     def _perform_update(self):
-        """Perform actual text widget update"""
         with self._update_lock:
             self._update_scheduled = False
 
@@ -535,32 +499,26 @@ class OptimizedDisplay:
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def set_font_size(self, size: int):
-        """Change font size"""
         self.font_size = size
         self.text_widget.configure(font=("Courier", size))
         if self.current_ascii:
             self.update_ascii(self.current_ascii)
 
     def clear(self):
-        """Clear display"""
         self.text_widget.delete(1.0, tk.END)
         self.current_ascii = ""
 
     def destroy(self):
-        """Clean up"""
         self.canvas.destroy()
         self.text_widget.destroy()
 
 
 class ConfigManager:
-    """Manages application configuration"""
-
     CONFIG_DIR = Path.home() / '.ascii_video_player'
     CONFIG_FILE = CONFIG_DIR / 'config.json'
 
     @classmethod
     def load(cls) -> VideoSettings:
-        """Load settings from config file"""
         try:
             if cls.CONFIG_FILE.exists():
                 with open(cls.CONFIG_FILE, 'r') as f:
@@ -573,7 +531,6 @@ class ConfigManager:
 
     @classmethod
     def save(cls, settings: VideoSettings):
-        """Save settings to config file"""
         try:
             cls.CONFIG_DIR.mkdir(exist_ok=True)
             with open(cls.CONFIG_FILE, 'w') as f:
@@ -584,8 +541,6 @@ class ConfigManager:
 
 
 class KeyboardShortcuts:
-    """Manages keyboard shortcuts"""
-
     SHORTCUTS = {
         '<space>': 'play_pause',
         '<Escape>': 'stop',
@@ -605,21 +560,17 @@ class KeyboardShortcuts:
         self._bindings = {}
 
     def bind_all(self):
-        """Bind all keyboard shortcuts"""
         for key, callback_name in self.SHORTCUTS.items():
             callback = getattr(self.app, f'_on_{callback_name}', None)
             if callback:
                 self._bindings[key] = self.app.root.bind(key, callback)
 
     def unbind_all(self):
-        """Unbind all keyboard shortcuts"""
         for key, binding_id in self._bindings.items():
             self.app.root.unbind(key, binding_id)
 
 
 class ASCIIVideoPlayer:
-    """Main application class with proper resource management"""
-
     def __init__(self, root):
         self.root = root
         self.root.title("ASCII Video Player")
@@ -640,7 +591,6 @@ class ASCIIVideoPlayer:
 
         self.ui_lock = threading.Lock()
         
-        # Debouncing timer for settings
         self._settings_update_timer = None
         self._settings_update_lock = threading.Lock()
 
@@ -656,7 +606,6 @@ class ASCIIVideoPlayer:
         self.apply_settings_real_time()
 
     def setup_ui(self):
-        """Build UI components"""
         main_frame = tk.Frame(self.root, bg=self.bg_color)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -694,7 +643,6 @@ class ASCIIVideoPlayer:
         self.info_label.pack(side=tk.BOTTOM, fill=tk.X)
 
     def setup_file_controls(self, parent):
-        """Setup file selection UI"""
         file_frame = tk.Frame(parent, bg=self.bg_color)
         file_frame.pack(side=tk.LEFT, padx=5)
 
@@ -720,7 +668,6 @@ class ASCIIVideoPlayer:
         self.btn_open.pack(side=tk.LEFT, padx=5)
 
     def setup_playback_controls(self, parent):
-        """Setup playback control buttons"""
         playback_frame = tk.Frame(parent, bg=self.bg_color)
         playback_frame.pack(side=tk.LEFT, padx=20)
 
@@ -794,11 +741,9 @@ class ASCIIVideoPlayer:
         self.position_label.pack(side=tk.LEFT, padx=5)
 
     def setup_settings_panel(self, parent):
-        """Setup settings controls with debounced real-time updates"""
         settings_frame = tk.Frame(parent, bg=self.bg_color)
         settings_frame.pack(side=tk.RIGHT, padx=5)
 
-        # Width control
         tk.Label(settings_frame, text="Width:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.width_var = tk.StringVar(value=str(self.current_settings.width))
         width_spinbox = tk.Spinbox(
@@ -815,7 +760,6 @@ class ASCIIVideoPlayer:
         width_spinbox.pack(side=tk.LEFT, padx=2)
         self.width_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
-        # Font size control
         tk.Label(settings_frame, text="Font:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.font_var = tk.StringVar(value=str(self.current_settings.font_size))
         font_spinbox = tk.Spinbox(
@@ -832,14 +776,13 @@ class ASCIIVideoPlayer:
         font_spinbox.pack(side=tk.LEFT, padx=2)
         self.font_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
-        # Brightness control - use Scale with slower update rate
         tk.Label(settings_frame, text="Bright:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.brightness_var = tk.DoubleVar(value=self.current_settings.brightness)
         brightness_scale = tk.Scale(
             settings_frame,
             from_=0.0,
             to=2.0,
-            resolution=0.05,  # Larger steps = fewer updates
+            resolution=0.05,
             orient=tk.HORIZONTAL,
             length=100,
             variable=self.brightness_var,
@@ -850,14 +793,13 @@ class ASCIIVideoPlayer:
         )
         brightness_scale.pack(side=tk.LEFT, padx=2)
 
-        # Contrast control
         tk.Label(settings_frame, text="Contrast:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.contrast_var = tk.DoubleVar(value=self.current_settings.contrast)
         contrast_scale = tk.Scale(
             settings_frame,
             from_=0.0,
             to=3.0,
-            resolution=0.05,  # Larger steps = fewer updates
+            resolution=0.05,
             orient=tk.HORIZONTAL,
             length=100,
             variable=self.contrast_var,
@@ -868,7 +810,6 @@ class ASCIIVideoPlayer:
         )
         contrast_scale.pack(side=tk.LEFT, padx=2)
 
-        # Character set selection
         tk.Label(settings_frame, text="Charset:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.charset_var = tk.StringVar(value=self.current_settings.chars)
         charset_options = [
@@ -887,7 +828,6 @@ class ASCIIVideoPlayer:
         charset_menu.pack(side=tk.LEFT, padx=2)
         charset_menu.bind('<<ComboboxSelected>>', lambda e: self._schedule_settings_update())
 
-        # Cache size control
         tk.Label(settings_frame, text="Cache:", bg=self.bg_color, fg=self.fg_color).pack(side=tk.LEFT, padx=2)
         self.cache_var = tk.StringVar(value=str(self.current_settings.cache_size))
         cache_spinbox = tk.Spinbox(
@@ -904,7 +844,6 @@ class ASCIIVideoPlayer:
         cache_spinbox.pack(side=tk.LEFT, padx=2)
         self.cache_var.trace_add('write', lambda *args: self._schedule_settings_update())
 
-        # Save button
         self.btn_save = tk.Button(
             settings_frame,
             text="Save Settings",
@@ -917,7 +856,6 @@ class ASCIIVideoPlayer:
         )
         self.btn_save.pack(side=tk.LEFT, padx=5)
 
-        # Reset button
         self.btn_reset = tk.Button(
             settings_frame,
             text="Reset",
@@ -931,22 +869,17 @@ class ASCIIVideoPlayer:
         self.btn_reset.pack(side=tk.LEFT, padx=2)
 
     def _schedule_settings_update(self):
-        """Debounce settings updates to prevent excessive conversions"""
         with self._settings_update_lock:
-            # Cancel any pending update
             if self._settings_update_timer:
                 self.root.after_cancel(self._settings_update_timer)
             
-            # Schedule a new update after a short delay (100ms)
             self._settings_update_timer = self.root.after(100, self._apply_debounced_settings)
 
     def _apply_debounced_settings(self):
-        """Apply settings after debounce delay"""
         with self._settings_update_lock:
             self._settings_update_timer = None
             
             try:
-                # Only apply if values have actually changed
                 new_settings = VideoSettings(
                     width=int(self.width_var.get()),
                     font_size=int(self.font_var.get()),
@@ -957,29 +890,23 @@ class ASCIIVideoPlayer:
                     target_fps=self.current_settings.target_fps
                 )
                 
-                # Skip if settings haven't changed
                 if new_settings == self.current_settings:
                     return
                 
                 self.current_settings = new_settings
                 
-                # Update converter (this clears cache)
                 self.converter.update_settings(new_settings)
                 
-                # Update display font
                 if self.display:
                     self.display.set_font_size(new_settings.font_size)
                 
-                # Update video processor if active
                 if self.video_processor:
                     self.video_processor.update_settings(new_settings)
                     
-                    # Only refresh if paused (avoid interrupting playback)
                     state = self.video_processor.get_state()
                     if not state['is_playing']:
                         self.update_current_frame_display()
                     else:
-                        # If playing, just show a brief indicator
                         self.status_bar.config(text=f"Settings: {new_settings.width}x{new_settings.font_size}")
                         if hasattr(self, '_status_reset_job'):
                             self.root.after_cancel(self._status_reset_job)
@@ -991,14 +918,12 @@ class ASCIIVideoPlayer:
                 self.status_bar.config(text=f"Error: {e}")
 
     def reset_settings(self):
-        """Reset settings to defaults"""
         self.current_settings = VideoSettings()
         self._load_settings_to_ui()
         self._apply_debounced_settings()
         self.status_bar.config(text="Settings reset to defaults")
 
     def _load_settings_to_ui(self):
-        """Load saved settings into UI controls"""
         self.width_var.set(str(self.current_settings.width))
         self.font_var.set(str(self.current_settings.font_size))
         self.brightness_var.set(str(self.current_settings.brightness))
@@ -1007,11 +932,9 @@ class ASCIIVideoPlayer:
         self.cache_var.set(str(self.current_settings.cache_size))
 
     def apply_settings_real_time(self):
-        """Legacy method - now using debounced updates"""
         self._schedule_settings_update()
 
     def save_settings(self):
-        """Save current settings to config file"""
         try:
             ConfigManager.save(self.current_settings)
             self.status_bar.config(text="Settings saved successfully")
@@ -1023,7 +946,6 @@ class ASCIIVideoPlayer:
             self.status_bar.config(text=f"Error saving: {e}")
 
     def open_video(self):
-        """Open video file with error handling"""
         file_path = filedialog.askopenfilename(
             title="Select Video File",
             filetypes=[
@@ -1065,13 +987,11 @@ class ASCIIVideoPlayer:
         self.update_current_frame_display()
 
     def start_display_update(self):
-        """Start the display update loop"""
         if self.display_update_job:
             self.root.after_cancel(self.display_update_job)
         self.update_display()
 
     def update_display(self):
-        """Update display from video processor queue"""
         if not self.video_processor:
             self.display_update_job = self.root.after(100, self.update_display)
             return
@@ -1116,7 +1036,6 @@ class ASCIIVideoPlayer:
         self.display_update_job = self.root.after(16, self.update_display)
 
     def toggle_playback(self):
-        """Toggle play/pause"""
         if not self.video_processor:
             return
 
@@ -1132,7 +1051,6 @@ class ASCIIVideoPlayer:
             self.status_bar.config(text="Playing")
 
     def stop_playback(self):
-        """Stop playback and reset"""
         if not self.video_processor:
             return
 
@@ -1149,7 +1067,6 @@ class ASCIIVideoPlayer:
         self.status_bar.config(text="Stopped")
 
     def seek_relative(self, delta: int):
-        """Seek relative to current position"""
         if not self.video_processor:
             return
 
@@ -1157,7 +1074,6 @@ class ASCIIVideoPlayer:
         self.status_bar.config(text=f"Seeking...")
 
     def update_current_frame_display(self):
-        """Update display with current frame (for paused state)"""
         if not self.video_processor:
             return
 
@@ -1222,10 +1138,8 @@ class ASCIIVideoPlayer:
         return "break"
 
     def cleanup(self):
-        """Clean up all resources"""
         logger.info("Cleaning up application...")
         
-        # Cancel any pending settings update
         if self._settings_update_timer:
             try:
                 self.root.after_cancel(self._settings_update_timer)
@@ -1251,13 +1165,11 @@ class ASCIIVideoPlayer:
         logger.info("Cleanup complete")
 
     def on_closing(self):
-        """Handle window close event"""
         self.cleanup()
         self.root.destroy()
 
 
 def main():
-    """Entry point with error handling"""
     try:
         required_modules = ['cv2', 'numpy']
         missing_modules = []

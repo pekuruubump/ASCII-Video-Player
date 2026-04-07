@@ -25,7 +25,7 @@ cd ascii-video-player
 
 2. ** Download these dependencies**
 ```powershell
-pip install opencv-python numpy pillow
+pip install opencv-python numpy
 ```
 ### Note: tkinter is included with most Python installations. If missing, install via your package manager:
 
